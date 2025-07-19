@@ -1,8 +1,0 @@
-[book]
-authors = ["The Rayhunter Team"]
-language = "en"
-src = "doc"
-title = "Rayhunter - An IMSI Catcher Catcher"
-
-[output.html]
-edit-url-template = "https://github.com/efforg/rayhunter/edit/main/{path}"
