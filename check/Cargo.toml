@@ -1,0 +1,12 @@
+[package]
+name = "rayhunter-check"
+version = "0.4.1"
+edition = "2024"
+
+[dependencies]
+rayhunter = { path = "../lib" }
+clap = { version = "4.5.2", features = ["derive"] }
+log = "0.4.20"
+simple_logger = "5.0.0"
+tokio = { version = "1.44.2", features = ["fs", "rt-multi-thread", "macros"] }
+futures = { version = "0.3.30", default-features = false } 

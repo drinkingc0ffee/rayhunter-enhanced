@@ -11,7 +11,7 @@ echo "=========================================================="
 # Configuration
 CONTAINER_NAME="rayhunter-build-docker"
 IMAGE_NAME="ubuntu:22.04"
-SOURCE_DIR="/Users/beisenmann/rayhunter-enhanced"
+SOURCE_DIR="/Users/beisenmann/rayhunter-enhanced-f1"
 CONTAINER_WORK_DIR="/home/rayhunter"
 
 # Colors for output
