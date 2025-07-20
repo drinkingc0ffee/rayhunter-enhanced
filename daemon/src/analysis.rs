@@ -18,12 +18,15 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tokio_util::task::TaskTracker;
 
+use crate::gps_correlation::GpsCorrelator;
 use crate::qmdl_store::RecordingStore;
 use crate::server::ServerState;
 
 pub struct AnalysisWriter {
     writer: BufWriter<File>,
     harness: Harness,
+    gps_correlator: Option<GpsCorrelator>,
+    recording_name: Option<String>,
 }
 
 // We write our analysis results to a file immediately to minimize the amount of
@@ -33,12 +36,24 @@ pub struct AnalysisWriter {
 // lets us simply append new rows to the end without parsing the entire JSON
 // object beforehand.
 impl AnalysisWriter {
-    pub async fn new(file: File, analyzer_config: &AnalyzerConfig) -> Result<Self, std::io::Error> {
+    pub async fn new(
+        file: File, 
+        analyzer_config: &AnalyzerConfig,
+        recording_name: Option<String>,
+    ) -> Result<Self, std::io::Error> {
         let harness = Harness::new_with_config(analyzer_config);
+
+        let gps_correlator = if let Some(ref name) = recording_name {
+            GpsCorrelator::new(name).ok()
+        } else {
+            None
+        };
 
         let mut result = Self {
             writer: BufWriter::new(file),
             harness,
+            gps_correlator,
+            recording_name,
         };
         let metadata = result.harness.get_metadata();
         result.write(&metadata).await?;
@@ -49,7 +64,14 @@ impl AnalysisWriter {
     // to the analysis file, returning the whether any warnings were detected
     pub async fn analyze(&mut self, container: MessagesContainer) -> Result<bool, std::io::Error> {
         let mut warning_detected = false;
-        for row in self.harness.analyze_qmdl_messages(container) {
+        for mut row in self.harness.analyze_qmdl_messages(container) {
+            // Add GPS correlation if available
+            if let Some(ref mut gps_correlator) = self.gps_correlator {
+                if let Some(gps_data) = gps_correlator.correlate_with_gps(&row) {
+                    row.extend(gps_data);
+                }
+            }
+            
             if !row.is_empty() {
                 self.write(&row).await?;
             }
@@ -143,7 +165,7 @@ async fn perform_analysis(
         (analysis_file, qmdl_file)
     };
 
-    let mut analysis_writer = AnalysisWriter::new(analysis_file, analyzer_config)
+    let mut analysis_writer = AnalysisWriter::new(analysis_file, analyzer_config, Some(name.to_string()))
         .await
         .map_err(|e| format!("{e:?}"))?;
     let file_size = qmdl_file
