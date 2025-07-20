@@ -19,6 +19,7 @@ use tokio::sync::{RwLock, RwLockWriteGuard};
 use tokio_util::task::TaskTracker;
 
 use crate::dummy_analyzer::TestAnalyzer;
+use crate::gps_correlation::GpsCorrelator;
 use crate::qmdl_store::RecordingStore;
 use crate::server::ServerState;
 
@@ -26,6 +27,8 @@ pub struct AnalysisWriter {
     writer: BufWriter<File>,
     harness: Harness,
     bytes_written: usize,
+    gps_correlator: Option<GpsCorrelator>,
+    recording_name: Option<String>,
 }
 
 // We write our analysis results to a file immediately to minimize the amount of
@@ -39,16 +42,25 @@ impl AnalysisWriter {
         file: File,
         enable_dummy_analyzer: bool,
         analyzer_config: &AnalyzerConfig,
+        recording_name: Option<String>,
     ) -> Result<Self, std::io::Error> {
         let mut harness = Harness::new_with_config(analyzer_config);
         if enable_dummy_analyzer {
             harness.add_analyzer(Box::new(TestAnalyzer { count: 0 }));
         }
 
+        let gps_correlator = if let Some(ref name) = recording_name {
+            GpsCorrelator::new(name).ok()
+        } else {
+            None
+        };
+
         let mut result = Self {
             writer: BufWriter::new(file),
             bytes_written: 0,
             harness,
+            gps_correlator,
+            recording_name,
         };
         let metadata = result.harness.get_metadata();
         result.write(&metadata).await?;
@@ -61,7 +73,15 @@ impl AnalysisWriter {
         &mut self,
         container: MessagesContainer,
     ) -> Result<(usize, bool), std::io::Error> {
-        let row = self.harness.analyze_qmdl_messages(container);
+        let mut row = self.harness.analyze_qmdl_messages(container);
+        
+        // Add GPS correlation if available
+        if let Some(ref mut gps_correlator) = self.gps_correlator {
+            if let Some(gps_data) = gps_correlator.correlate_with_gps(&row) {
+                row.extend(gps_data);
+            }
+        }
+        
         if !row.is_empty() {
             self.write(&row).await?;
         }
@@ -156,7 +176,7 @@ async fn perform_analysis(
     };
 
     let mut analysis_writer =
-        AnalysisWriter::new(analysis_file, enable_dummy_analyzer, analyzer_config)
+        AnalysisWriter::new(analysis_file, enable_dummy_analyzer, analyzer_config, Some(name.to_string()))
             .await
             .map_err(|e| format!("{:?}", e))?;
     let file_size = qmdl_file
