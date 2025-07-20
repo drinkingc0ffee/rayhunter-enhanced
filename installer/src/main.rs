@@ -3,12 +3,11 @@ use clap::{Parser, Subcommand};
 use env_logger::Env;
 
 mod orbic;
-mod tmobile;
 mod tplink;
 mod util;
 mod wingtech;
 
-pub static CONFIG_TOML: &str = include_str!("../../dist/config.toml.in");
+pub static CONFIG_TOML: &str = include_str!("../../dist/config.toml.example");
 pub static RAYHUNTER_DAEMON_INIT: &str = include_str!("../../dist/scripts/rayhunter_daemon");
 
 #[derive(Parser, Debug)]
@@ -22,8 +21,6 @@ struct Args {
 enum Command {
     /// Install rayhunter on the Orbic Orbic RC400L.
     Orbic(InstallOrbic),
-    /// Install rayhunter on the TMobile TMOHS1.
-    Tmobile(TmobileArgs),
     /// Install rayhunter on the TP-Link M7350.
     Tplink(InstallTpLink),
     /// Install rayhunter on the Wingtech CT2MHS01.
@@ -70,37 +67,12 @@ enum UtilSubCommand {
     Serial(Serial),
     /// Start an ADB shell
     Shell(Shell),
-    /// Root the Tmobile and launch adb.
-    TmobileStartAdb(TmobileArgs),
-    /// Root the Tmobile and launch telnetd.
-    TmobileStartTelnet(TmobileArgs),
     /// Root the tplink and launch telnetd.
     TplinkStartTelnet(TplinkStartTelnet),
     /// Root the Wingtech and launch telnetd.
     WingtechStartTelnet(WingtechArgs),
     /// Root the Wingtech and launch adb.
     WingtechStartAdb(WingtechArgs),
-    /// Send a file to the TP-Link device over telnet.
-    ///
-    /// Before running this utility, you need to make telnet accessible with `installer util
-    /// tplink-start-telnet`.
-    TplinkSendFile(TplinkSendFile),
-    /// Send a file to the Wingtech device over telnet.
-    ///
-    /// Before running this utility, you need to make telnet accessible with `installer util
-    /// wingtech-start-telnet`.
-    WingtechSendFile(WingtechSendFile),
-}
-
-#[derive(Parser, Debug)]
-struct TmobileArgs {
-    /// IP address for Tmobile admin interface, if custom.
-    #[arg(long, default_value = "192.168.0.1")]
-    admin_ip: String,
-
-    /// Web portal admin password.
-    #[arg(long)]
-    admin_password: String,
 }
 
 #[derive(Parser, Debug)]
@@ -108,28 +80,6 @@ struct TplinkStartTelnet {
     /// IP address for TP-Link admin interface, if custom.
     #[arg(long, default_value = "192.168.0.1")]
     admin_ip: String,
-}
-
-#[derive(Parser, Debug)]
-struct TplinkSendFile {
-    /// IP address for TP-Link admin interface, if custom.
-    #[arg(long, default_value = "192.168.0.1")]
-    admin_ip: String,
-    /// Local path to the file to send.
-    local_path: String,
-    /// Remote path where the file should be stored on the device.
-    remote_path: String,
-}
-
-#[derive(Parser, Debug)]
-struct WingtechSendFile {
-    /// IP address for Wingtech admin interface, if custom.
-    #[arg(long, default_value = "192.168.1.1")]
-    admin_ip: String,
-    /// Local path to the file to send.
-    local_path: String,
-    /// Remote path where the file should be stored on the device.
-    remote_path: String,
 }
 
 #[derive(Parser, Debug)]
@@ -158,7 +108,6 @@ async fn run() -> Result<(), Error> {
     let Args { command } = Args::parse();
 
     match command {
-        Command::Tmobile(args) => tmobile::install(args).await.context("Failed to install rayhunter on the Tmobile TMOHS1. Make sure your computer is connected to the hotspot using USB tethering or WiFi.")?,
         Command::Tplink(tplink) => tplink::main_tplink(tplink).await.context("Failed to install rayhunter on the TP-Link M7350. Make sure your computer is connected to the hotspot using USB tethering or WiFi.")?,
         Command::Orbic(_) => orbic::install().await.context("\nFailed to install rayhunter on the Orbic RC400L")?,
         Command::Wingtech(args) => wingtech::install(args).await.context("\nFailed to install rayhunter on the Wingtech CT2MHS01")?,
@@ -182,16 +131,8 @@ async fn run() -> Result<(), Error> {
                 }
             }
             UtilSubCommand::Shell(_) => orbic::shell().await.context("\nFailed to open shell on Orbic RC400L")?,
-            UtilSubCommand::TmobileStartTelnet(args) => wingtech::start_telnet(&args.admin_ip, &args.admin_password).await.context("\nFailed to start telnet on the Tmobile TMOHS1")?,
-            UtilSubCommand::TmobileStartAdb(args) => wingtech::start_adb(&args.admin_ip, &args.admin_password).await.context("\nFailed to start adb on the Tmobile TMOHS1")?,
             UtilSubCommand::TplinkStartTelnet(options) => {
                 tplink::start_telnet(&options.admin_ip).await?;
-            }
-            UtilSubCommand::TplinkSendFile(options) => {
-                util::send_file(&options.admin_ip, &options.local_path, &options.remote_path).await?;
-            }
-            UtilSubCommand::WingtechSendFile(options) => {
-                util::send_file(&options.admin_ip, &options.local_path, &options.remote_path).await?;
             }
             UtilSubCommand::WingtechStartTelnet(args) => wingtech::start_telnet(&args.admin_ip, &args.admin_password).await.context("\nFailed to start telnet on the Wingtech CT2MHS01")?,
             UtilSubCommand::WingtechStartAdb(args) => wingtech::start_adb(&args.admin_ip, &args.admin_password).await.context("\nFailed to start adb on the Wingtech CT2MHS01")?,
@@ -201,7 +142,7 @@ async fn run() -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
         eprintln!("{e:?}");

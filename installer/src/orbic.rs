@@ -91,9 +91,10 @@ async fn setup_rootshell(adb_device: &mut ADBUSBDevice) -> Result<()> {
 }
 
 async fn setup_rayhunter(mut adb_device: ADBUSBDevice) -> Result<ADBUSBDevice> {
-    let rayhunter_daemon_bin = include_bytes!(env!("FILE_RAYHUNTER_DAEMON"));
+    let rayhunter_daemon_bin = include_bytes!(env!("FILE_RAYHUNTER_DAEMON_ORBIC"));
 
-    adb_at_syscmd(&mut adb_device, "mkdir -p /data/rayhunter").await?;
+            adb_at_syscmd(&mut adb_device, "mkdir -p /data/rayhunter").await?;
+        adb_at_syscmd(&mut adb_device, "mkdir -p /data/rayhunter/captures").await?;
     install_file(
         &mut adb_device,
         "/data/rayhunter/rayhunter-daemon",
@@ -103,9 +104,7 @@ async fn setup_rayhunter(mut adb_device: ADBUSBDevice) -> Result<ADBUSBDevice> {
     install_file(
         &mut adb_device,
         "/data/rayhunter/config.toml",
-        CONFIG_TOML
-            .replace("#device = \"orbic\"", "device = \"orbic\"")
-            .as_bytes(),
+        CONFIG_TOML.as_bytes(),
     )
     .await?;
     install_file(
@@ -196,11 +195,11 @@ async fn install_file_impl(
         .stat(dest)
         .context("Failed to stat transfered file")?;
     if file_info.file_size == 0 {
-        bail!("File transfer unsuccessful\nFile is empty");
+        bail!("File transfer unseccessful\nFile is empty");
     }
-    let output = adb_command(adb_device, &["sha256sum", dest])?;
-    if !output.contains(&file_hash) {
-        bail!("File transfer unsuccessful\nBad hash expected {file_hash} got {output}");
+    let ouput = adb_command(adb_device, &["sha256sum", dest])?;
+    if !ouput.contains(&file_hash) {
+        bail!("File transfer unseccessful\nBad hash expected {file_hash} got {ouput}");
     }
     Ok(())
 }
@@ -364,7 +363,7 @@ async fn adb_serial_cmd(adb_device: &mut ADBUSBDevice, command: &str) -> Result<
 
 /// Sends an AT command to the usb device over the serial port
 ///
-/// First establish a USB handle and context by calling `open_orbic()`
+/// First establish a USB handle and context by calling `open_orbic(<T>)
 pub async fn send_serial_cmd(interface: &Interface, command: &str) -> Result<()> {
     let mut data = String::new();
     data.push_str("\r\n");

@@ -151,16 +151,22 @@ async fn tplink_run_install(
     )
     .await?;
 
-    telnet_send_file(
+    // Create captures directory for all log files
+    telnet_send_command(
         addr,
-        &format!("{sdcard_path}/config.toml"),
-        crate::CONFIG_TOML
-            .replace("#device = \"orbic\"", "device = \"tplink\"")
-            .as_bytes(),
+        &format!("mkdir -p {sdcard_path}/captures"),
+        "exit code 0",
     )
     .await?;
 
-    let rayhunter_daemon_bin = include_bytes!(env!("FILE_RAYHUNTER_DAEMON"));
+    telnet_send_file(
+        addr,
+        &format!("{sdcard_path}/config.toml"),
+        crate::CONFIG_TOML.as_bytes(),
+    )
+    .await?;
+
+    let rayhunter_daemon_bin = include_bytes!(env!("FILE_RAYHUNTER_DAEMON_TPLINK"));
 
     telnet_send_file(
         addr,

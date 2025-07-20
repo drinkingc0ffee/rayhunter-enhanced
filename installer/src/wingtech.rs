@@ -19,7 +19,7 @@ use serde::Deserialize;
 use tokio::time::sleep;
 
 use crate::WingtechArgs as Args;
-use crate::util::{echo, http_ok_every, telnet_send_command, telnet_send_file};
+use crate::util::{echo, telnet_send_command, telnet_send_file};
 
 #[derive(Deserialize)]
 struct LoginResponse {
@@ -56,7 +56,7 @@ pub async fn start_adb(admin_ip: &str, admin_password: &str) -> Result<()> {
     run_command(admin_ip, admin_password, "/sbin/usb/compositions/9025").await
 }
 
-pub async fn run_command(admin_ip: &str, admin_password: &str, cmd: &str) -> Result<()> {
+async fn run_command(admin_ip: &str, admin_password: &str, cmd: &str) -> Result<()> {
     let qcmap_auth_endpoint = format!("http://{admin_ip}/cgi-bin/qcmap_auth");
     let qcmap_web_cgi_endpoint = format!("http://{admin_ip}/cgi-bin/qcmap_web_cgi");
 
@@ -95,19 +95,18 @@ async fn wingtech_run_install(admin_ip: String, admin_password: String) -> Resul
 
     echo!("Connecting via telnet to {admin_ip} ... ");
     let addr = SocketAddr::from_str(&format!("{admin_ip}:23")).unwrap();
-    telnet_send_command(addr, "mkdir -p /data/rayhunter", "exit code 0").await?;
+            telnet_send_command(addr, "mkdir -p /data/rayhunter", "exit code 0").await?;
+        telnet_send_command(addr, "mkdir -p /data/rayhunter/captures", "exit code 0").await?;
     println!("ok");
 
     telnet_send_file(
         addr,
         "/data/rayhunter/config.toml",
-        crate::CONFIG_TOML
-            .replace("#device = \"orbic\"", "device = \"wingtech\"")
-            .as_bytes(),
+        crate::CONFIG_TOML.as_bytes(),
     )
     .await?;
 
-    let rayhunter_daemon_bin = include_bytes!(env!("FILE_RAYHUNTER_DAEMON"));
+    let rayhunter_daemon_bin = include_bytes!(env!("FILE_RAYHUNTER_DAEMON_WINGTECH"));
     telnet_send_file(
         addr,
         "/data/rayhunter/rayhunter-daemon",
@@ -148,6 +147,29 @@ async fn wingtech_run_install(admin_ip: String, admin_password: String) -> Resul
     .await?;
     println!("ok");
     println!("rayhunter is running at http://{admin_ip}:8080");
+
+    Ok(())
+}
+
+async fn http_ok_every(rayhunter_url: String, interval: Duration, max_failures: u32) -> Result<()> {
+    let client = Client::new();
+    let mut failures = 0;
+    loop {
+        match client.get(&rayhunter_url).send().await {
+            Ok(test) => match test.status().is_success() {
+                true => break,
+                false => bail!(
+                    "request for url ({rayhunter_url}) failed with status code: {:?}",
+                    test.status()
+                ),
+            },
+            Err(e) => match failures > max_failures {
+                true => return Err(e.into()),
+                false => failures += 1,
+            },
+        }
+        sleep(interval).await;
+    }
 
     Ok(())
 }

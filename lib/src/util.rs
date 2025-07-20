@@ -26,7 +26,7 @@ impl RuntimeMetadata {
     /// `std::env::consts`.
     pub fn new() -> Self {
         let build_target = RuntimeMetadata {
-            rayhunter_version: env!("CARGO_PKG_VERSION").to_owned(),
+            rayhunter_version: format!("{} - Enhanced", env!("CARGO_PKG_VERSION")),
             arch: std::env::consts::ARCH.to_string(),
             system_os: std::env::consts::OS.to_string(),
         };
@@ -37,7 +37,7 @@ impl RuntimeMetadata {
         #[cfg(target_family = "unix")]
         match uname() {
             Ok(utsname) => RuntimeMetadata {
-                rayhunter_version: env!("CARGO_PKG_VERSION").to_owned(),
+                rayhunter_version: format!("{} - Enhanced", env!("CARGO_PKG_VERSION")),
                 arch: format!("{}", utsname.machine().to_string_lossy()),
                 system_os: format!(
                     "{} {}",

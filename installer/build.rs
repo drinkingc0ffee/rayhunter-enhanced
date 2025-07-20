@@ -9,7 +9,21 @@ fn main() {
         "/../target/armv7-unknown-linux-musleabihf/firmware/"
     ));
     set_binary_var(include_dir, "FILE_ROOTSHELL", "rootshell");
-    set_binary_var(include_dir, "FILE_RAYHUNTER_DAEMON", "rayhunter-daemon");
+    set_binary_var(
+        include_dir,
+        "FILE_RAYHUNTER_DAEMON_ORBIC",
+        "rayhunter-daemon",
+    );
+    set_binary_var(
+        include_dir,
+        "FILE_RAYHUNTER_DAEMON_TPLINK",
+        "rayhunter-daemon",
+    );
+    set_binary_var(
+        include_dir,
+        "FILE_RAYHUNTER_DAEMON_WINGTECH",
+        "rayhunter-daemon",
+    );
 }
 
 fn set_binary_var(include_dir: &Path, var: &str, file: &str) {

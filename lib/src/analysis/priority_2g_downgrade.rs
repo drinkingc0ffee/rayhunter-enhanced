@@ -46,10 +46,6 @@ impl Analyzer for LteSib6And7DowngradeAnalyzer {
         )
     }
 
-    fn get_version(&self) -> u32 {
-        1
-    }
-
     fn analyze_information_element(
         &mut self,
         ie: &InformationElement,

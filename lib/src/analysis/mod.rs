@@ -1,9 +1,10 @@
 pub mod analyzer;
+pub mod cellular_network;
 pub mod connection_redirect_downgrade;
+pub mod gps_correlation;
 pub mod imsi_provided;
 pub mod imsi_requested;
 pub mod information_element;
-pub mod nas_null_cipher;
 pub mod null_cipher;
 pub mod priority_2g_downgrade;
 pub mod util;

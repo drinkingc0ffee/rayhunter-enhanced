@@ -1,5 +1,6 @@
 use crate::diag::*;
 use crate::gsmtap::*;
+use crate::cellular_info::{CellularInfoExtractor, CellularNetworkInfo};
 
 use log::error;
 use thiserror::Error;
@@ -20,6 +21,56 @@ pub fn parse(msg: Message) -> Result<Option<(Timestamp, GsmtapMessage)>, GsmtapP
         match log_to_gsmtap(body)? {
             Some(msg) => Ok(Some((timestamp, msg))),
             None => Ok(None),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// Enhanced parsing function that also extracts cellular network information
+pub fn parse_with_cellular_info(
+    msg: Message,
+    cellular_extractor: &mut CellularInfoExtractor,
+) -> Result<Option<(Timestamp, GsmtapMessage, Option<CellularNetworkInfo>)>, GsmtapParserError> {
+    if let Message::Log {
+        timestamp, body, log_type, ..
+    } = msg
+    {
+        // Extract cellular information from the log message
+        let cellular_info = cellular_extractor.extract_from_log_data(
+            log_type,
+            &match &body {
+                LogBody::LteRrcOtaMessage { packet, .. } => packet.clone().take_payload(),
+                LogBody::LteML1ServingCellInfo { data } => data.clone(),
+                LogBody::LteML1NeighborMeasurements { data } => data.clone(),
+                LogBody::GsmL1CellId { data } => data.clone(),
+                LogBody::GsmRrCellInformation { data } => data.clone(),
+                LogBody::WcdmaCellId { data } => data.clone(),
+                LogBody::WcdmaServingCellInfo { data } => data.clone(),
+                LogBody::Nas4GMessage { msg, .. } => msg.clone(),
+                _ => Vec::new(),
+            },
+            timestamp.to_datetime(),
+        );
+
+        match log_to_gsmtap(body)? {
+            Some(gsmtap_msg) => Ok(Some((timestamp, gsmtap_msg, cellular_info))),
+            None => {
+                // Even if we can't create a GSMTAP message, we might have cellular info
+                if cellular_info.is_some() {
+                    // Create a dummy GSMTAP message for cellular info only
+                    Ok(Some((
+                        timestamp,
+                        GsmtapMessage {
+                            header: GsmtapHeader::new(GsmtapType::QcDiag),
+                            payload: Vec::new(),
+                        },
+                        cellular_info,
+                    )))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     } else {
         Ok(None)

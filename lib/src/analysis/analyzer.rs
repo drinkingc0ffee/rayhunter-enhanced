@@ -1,17 +1,15 @@
 use chrono::{DateTime, FixedOffset};
-use pcap_file_tokio::pcapng::blocks::enhanced_packet::EnhancedPacketBlock;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-use crate::gsmtap::{GsmtapHeader, GsmtapMessage, GsmtapType};
 use crate::util::RuntimeMetadata;
 use crate::{diag::MessagesContainer, gsmtap_parser};
 
 use super::{
     connection_redirect_downgrade::ConnectionRedirect2GDowngradeAnalyzer,
     imsi_requested::ImsiRequestedAnalyzer, information_element::InformationElement,
-    nas_null_cipher::NasNullCipherAnalyzer, null_cipher::NullCipherAnalyzer,
-    priority_2g_downgrade::LteSib6And7DowngradeAnalyzer,
+    null_cipher::NullCipherAnalyzer, priority_2g_downgrade::LteSib6And7DowngradeAnalyzer,
+    cellular_network::CellularNetworkAnalyzer,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -21,7 +19,7 @@ pub struct AnalyzerConfig {
     pub connection_redirect_2g_downgrade: bool,
     pub lte_sib6_and_7_downgrade: bool,
     pub null_cipher: bool,
-    pub nas_null_cipher: bool,
+    pub cellular_network: bool,
 }
 
 impl Default for AnalyzerConfig {
@@ -31,12 +29,10 @@ impl Default for AnalyzerConfig {
             connection_redirect_2g_downgrade: true,
             lte_sib6_and_7_downgrade: true,
             null_cipher: true,
-            nas_null_cipher: true,
+            cellular_network: true,
         }
     }
 }
-
-pub const REPORT_VERSION: u32 = 2;
 
 /// Qualitative measure of how severe a Warning event type is.
 /// The levels should break down like this:
@@ -88,44 +84,61 @@ pub trait Analyzer {
     /// [Analyzer] updates per message, since it may be run over hundreds or
     /// thousands of them alongside many other [Analyzers](Analyzer).
     fn analyze_information_element(&mut self, ie: &InformationElement) -> Option<Event>;
+}
 
-    /// Returns a version number for this Analyzer. This should only ever
-    /// increase in value, and do so whenever substantial changes are made to
-    /// the Analyzer's heuristic.
-    fn get_version(&self) -> u32;
+/// A [QmdlAnalyzer] operates at the QMDL message level, before GSMTAP parsing.
+/// This allows for extraction of cellular network information that may not be
+/// available in the parsed GSMTAP messages, such as detailed cell parameters
+/// and signal measurements.
+pub trait QmdlAnalyzer {
+    /// Returns a user-friendly, concise name for your analyzer.
+    fn get_name(&self) -> Cow<str>;
+
+    /// Returns a user-friendly description of what your analyzer extracts or analyzes.
+    fn get_description(&self) -> Cow<str>;
+
+    /// Analyze a single QMDL message, possibly returning an [Event] if relevant
+    /// information is found or extracted.
+    fn analyze_qmdl_message(&mut self, qmdl_message: &crate::diag::Message) -> Option<Event>;
 }
 
 #[derive(Serialize, Debug)]
 pub struct AnalyzerMetadata {
     pub name: String,
     pub description: String,
-    pub version: u32,
 }
 
 #[derive(Serialize, Debug)]
 pub struct ReportMetadata {
     pub analyzers: Vec<AnalyzerMetadata>,
     pub rayhunter: RuntimeMetadata,
-    // anytime the format of the report changes, bump this by 1
-    pub report_version: u32,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct PacketAnalysis {
+    pub timestamp: DateTime<FixedOffset>,
+    pub events: Vec<Option<Event>>,
+    pub gps_correlation: Option<super::gps_correlation::GpsCorrelation>,
 }
 
 #[derive(Serialize, Debug)]
 pub struct AnalysisRow {
-    pub packet_timestamp: Option<DateTime<FixedOffset>>,
-    pub skipped_message_reason: Option<String>,
-    pub events: Vec<Option<Event>>,
+    pub timestamp: DateTime<FixedOffset>,
+    pub skipped_message_reasons: Vec<String>,
+    pub analysis: Vec<PacketAnalysis>,
 }
 
 impl AnalysisRow {
     pub fn is_empty(&self) -> bool {
-        self.skipped_message_reason.is_none() && !self.contains_warnings()
+        self.skipped_message_reasons.is_empty() && self.analysis.is_empty()
     }
 
     pub fn contains_warnings(&self) -> bool {
-        for event in self.events.iter().flatten() {
-            if matches!(event.event_type, EventType::QualitativeWarning { .. }) {
-                return true;
+        for analysis in &self.analysis {
+            for event in analysis.events.iter().flatten() {
+                if matches!(event.event_type, EventType::QualitativeWarning { .. }) {
+                    return true;
+                }
             }
         }
         false
@@ -134,6 +147,7 @@ impl AnalysisRow {
 
 pub struct Harness {
     analyzers: Vec<Box<dyn Analyzer + Send>>,
+    qmdl_analyzers: Vec<Box<dyn QmdlAnalyzer + Send>>,
 }
 
 impl Default for Harness {
@@ -146,6 +160,7 @@ impl Harness {
     pub fn new() -> Self {
         Self {
             analyzers: Vec::new(),
+            qmdl_analyzers: Vec::new(),
         }
     }
 
@@ -164,9 +179,8 @@ impl Harness {
         if analyzer_config.null_cipher {
             harness.add_analyzer(Box::new(NullCipherAnalyzer {}));
         }
-
-        if analyzer_config.nas_null_cipher {
-            harness.add_analyzer(Box::new(NasNullCipherAnalyzer::new()))
+        if analyzer_config.cellular_network {
+            harness.add_qmdl_analyzer(Box::new(CellularNetworkAnalyzer::new()));
         }
 
         harness
@@ -176,62 +190,40 @@ impl Harness {
         self.analyzers.push(analyzer);
     }
 
-    pub fn analyze_pcap_packet(&mut self, packet: EnhancedPacketBlock) -> AnalysisRow {
-        let epoch = DateTime::parse_from_rfc3339("1980-01-06T00:00:00-00:00").unwrap();
-        let mut row = AnalysisRow {
-            packet_timestamp: Some(epoch + packet.timestamp),
-            skipped_message_reason: None,
-            events: Vec::new(),
-        };
-        let gsmtap_offset = 20 + 8;
-        let gsmtap_data = &packet.data[gsmtap_offset..];
-        // the type and subtype are at byte offsets 3 and 13, respectively
-        let gsmtap_header = match GsmtapType::new(gsmtap_data[2], gsmtap_data[12]) {
-            Ok(gsmtap_type) => GsmtapHeader::new(gsmtap_type),
-            Err(err) => {
-                row.skipped_message_reason = Some(format!("failed to read GsmtapHeader: {err:?}"));
-                return row;
-            }
-        };
-        let packet_offset = gsmtap_offset + 16;
-        let packet_data = &packet.data[packet_offset..];
-        let gsmtap_message = GsmtapMessage {
-            header: gsmtap_header,
-            payload: packet_data.to_vec(),
-        };
-        row.events = match InformationElement::try_from(&gsmtap_message) {
-            Ok(element) => self.analyze_information_element(&element),
-            Err(err) => {
-                row.skipped_message_reason =
-                    Some(format!("failed to convert gsmtap message to IE: {err:?}"));
-                return row;
-            }
-        };
-        row
+    pub fn add_qmdl_analyzer(&mut self, analyzer: Box<dyn QmdlAnalyzer + Send>) {
+        self.qmdl_analyzers.push(analyzer);
     }
 
-    pub fn analyze_qmdl_messages(&mut self, container: MessagesContainer) -> Vec<AnalysisRow> {
-        let mut rows = Vec::new();
+    pub fn analyze_qmdl_messages(&mut self, container: MessagesContainer) -> AnalysisRow {
+        let mut row = AnalysisRow {
+            timestamp: chrono::Local::now().fixed_offset(),
+            skipped_message_reasons: Vec::new(),
+            analysis: Vec::new(),
+        };
         for maybe_qmdl_message in container.into_messages() {
-            rows.push(AnalysisRow {
-                packet_timestamp: None,
-                skipped_message_reason: None,
-                events: Vec::new(),
-            });
-            // unwrap is safe here since we just pushed a value
-            let row = rows.last_mut().unwrap();
             let qmdl_message = match maybe_qmdl_message {
                 Ok(msg) => msg,
                 Err(err) => {
-                    row.skipped_message_reason = Some(format!("{err:?}"));
+                    row.skipped_message_reasons.push(format!("{err:?}"));
                     continue;
                 }
             };
 
+            // Run QMDL-level analyzers first
+            let qmdl_analysis_result = self.analyze_qmdl_message(&qmdl_message);
+            if qmdl_analysis_result.iter().any(Option::is_some) {
+                row.analysis.push(PacketAnalysis {
+                    timestamp: chrono::Local::now().fixed_offset(),
+                    events: qmdl_analysis_result,
+                    gps_correlation: None, // Will be filled by GPS correlator
+                });
+            }
+
+            // Then run traditional GSMTAP-based analyzers
             let gsmtap_message = match gsmtap_parser::parse(qmdl_message) {
                 Ok(msg) => msg,
                 Err(err) => {
-                    row.skipped_message_reason = Some(format!("{err:?}"));
+                    row.skipped_message_reasons.push(format!("{err:?}"));
                     continue;
                 }
             };
@@ -239,35 +231,75 @@ impl Harness {
             let Some((timestamp, gsmtap_msg)) = gsmtap_message else {
                 continue;
             };
-            row.packet_timestamp = Some(timestamp.to_datetime());
 
             let element = match InformationElement::try_from(&gsmtap_msg) {
                 Ok(element) => element,
                 Err(err) => {
-                    row.skipped_message_reason = Some(format!("{err:?}"));
+                    row.skipped_message_reasons.push(format!("{err:?}"));
                     continue;
                 }
             };
 
-            row.events = self.analyze_information_element(&element);
+            let analysis_result = self.analyze_information_element(&element);
+            if analysis_result.iter().any(Option::is_some) {
+                row.analysis.push(PacketAnalysis {
+                    timestamp: timestamp.to_datetime(),
+                    events: analysis_result,
+                    gps_correlation: None, // Will be filled by GPS correlator
+                });
+            }
         }
-        rows
+        row
     }
 
-    pub fn analyze_information_element(&mut self, ie: &InformationElement) -> Vec<Option<Event>> {
+    fn analyze_information_element(&mut self, ie: &InformationElement) -> Vec<Option<Event>> {
         self.analyzers
             .iter_mut()
             .map(|analyzer| analyzer.analyze_information_element(ie))
             .collect()
     }
 
+    fn analyze_qmdl_message(&mut self, msg: &crate::diag::Message) -> Vec<Option<Event>> {
+        self.qmdl_analyzers
+            .iter_mut()
+            .map(|analyzer| analyzer.analyze_qmdl_message(msg))
+            .collect()
+    }
+
+    pub fn get_names(&self) -> Vec<Cow<'_, str>> {
+        let mut names = self.analyzers
+            .iter()
+            .map(|analyzer| analyzer.get_name())
+            .collect::<Vec<_>>();
+        
+        let qmdl_names = self.qmdl_analyzers
+            .iter()
+            .map(|analyzer| analyzer.get_name());
+        names.extend(qmdl_names);
+        names
+    }
+
+    pub fn get_descriptions(&self) -> Vec<Cow<'_, str>> {
+        let mut descriptions = self.analyzers
+            .iter()
+            .map(|analyzer| analyzer.get_description())
+            .collect::<Vec<_>>();
+        
+        let qmdl_descriptions = self.qmdl_analyzers
+            .iter()
+            .map(|analyzer| analyzer.get_description());
+        descriptions.extend(qmdl_descriptions);
+        descriptions
+    }
+
     pub fn get_metadata(&self) -> ReportMetadata {
+        let names = self.get_names();
+        let descriptions = self.get_descriptions();
         let mut analyzers = Vec::new();
-        for analyzer in &self.analyzers {
+        for (name, description) in names.iter().zip(descriptions.iter()) {
             analyzers.push(AnalyzerMetadata {
-                name: analyzer.get_name().to_string(),
-                description: analyzer.get_description().to_string(),
-                version: analyzer.get_version(),
+                name: name.to_string(),
+                description: description.to_string(),
             });
         }
 
@@ -276,7 +308,6 @@ impl Harness {
         ReportMetadata {
             analyzers,
             rayhunter,
-            report_version: REPORT_VERSION,
         }
     }
 }

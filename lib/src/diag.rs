@@ -217,6 +217,154 @@ pub enum LogBody {
         #[deku(count = "hdr_len")]
         msg: Vec<u8>,
     },
+    
+    // Enhanced cellular information log types
+    #[deku(id = "0xb0e0")]
+    LteML1ServingCellMeasAndEval {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0e1")]
+    LteML1NeighborMeasurements {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0e4")]
+    LteML1ServingCellInfo {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0e5")]
+    LteML1IntraFreqMeas {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0e6")]
+    LteML1InterFreqMeas {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0e7")]
+    LteML1InterRatMeas {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0e8")]
+    LteML1CellReselCandidates {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0ea")]
+    LteML1CommonDlConfig {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0eb")]
+    LteML1ServingCellComLoop {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0c1")]
+    LteRrcMeasConfig {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0c2")]
+    LteRrcCellInfo {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0c3")]
+    LteRrcState {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0c4")]
+    LteRrcPlmnSearchInfo {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    
+    // GSM/2G Cell Information
+    #[deku(id = "0x5134")]
+    GsmL1BurstMetrics {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x5135")]
+    GsmL1ScellBaList {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x5136")]
+    GsmL1NcellAcq {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x5137")]
+    GsmL1NcellBaList {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x5138")]
+    GsmCellOptions {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x5139")]
+    GsmPowerScan {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x513a")]
+    GsmL1CellId {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x513b")]
+    GsmRrCellInformation {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    
+    // WCDMA/3G Cell Information
+    #[deku(id = "0x4127")]
+    WcdmaCellId {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x4128")]
+    WcdmaRrcStates {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x4129")]
+    WcdmaPlmnSearch {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x412a")]
+    WcdmaServingCellInfo {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0x412b")]
+    WcdmaNeighborCellInfo {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    
+    // Measurement Reports and Cell Quality
+    #[deku(id = "0xb0f0")]
+    LtePhyServCellMeasurement {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
+    #[deku(id = "0xb0f1")]
+    LtePhyNeighCellMeasurement {
+        #[deku(count = "hdr_len")]
+        data: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, DekuRead, DekuWrite)]
